@@ -12,7 +12,7 @@ from .diff import parse_diff
 def get_pr(cfg: config.GitHubConfig):
     try:
         gh = github.Github(cfg.token)
-        repo = gh.get_repo(cfg.r
+        repo = gh.get_repo(cfg.repository)
         pr = repo.get_pull(cfg.pr_number)
         return pr
     except Exception as e:
