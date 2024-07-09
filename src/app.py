@@ -7,6 +7,7 @@ import ai.assistant
 import ai.tool
 import logger
 from github.PullRequest import PullRequest
+from github import GithubException
 
 
 class App:
@@ -34,16 +35,20 @@ class App:
         if not context.patch.diff:
             return [], []
 
-        # Stagger request start times to comply with rate limits
-        logger.log.debug(f"Waiting {delay} seconds before reviewing")
-        await asyncio.sleep(delay)
+        try:
+            # Stagger request start times to comply with rate limits
+            logger.log.debug(f"Waiting {delay} seconds before reviewing")
+            await asyncio.sleep(delay)
 
-        prioritized_comments, remaining_comments = await self._assistant.review_file(
-            observations=observations,
-            context=context,
-        )
+            prioritized_comments, remaining_comments = await self._assistant.review_file(
+                observations=observations,
+                context=context,
+            )
 
-        return prioritized_comments, remaining_comments
+            return prioritized_comments, remaining_comments
+        except Exception as e:
+            logger.log.error(f"Error reviewing file {context.path}: {str(e)}")
+            raise
 
     async def _review_files(
         self,
@@ -71,41 +76,48 @@ class App:
         return prioritized_comments, remaining_comments
 
     async def run(self):
-        overview = await self._assistant.overview(self._context)
-        status = overview.initial_assessment.status
-        if status != code.review.model.Status.REVIEW_REQUIRED:
+        try:
+            overview = await self._assistant.overview(self._context)
+            status = overview.initial_assessment.status
+            if status != code.review.model.Status.REVIEW_REQUIRED:
+                code.pull_request.submit_review(
+                    pull_request=self._pr,
+                    body=overview.initial_assessment.summary,
+                )
+                return
+
+            observations = overview.observations
+            file_contexts = overview.file_contexts
+            logger.log.debug(
+                f"Files to review: \n"
+                f"- {"\n- ".join([context.path for context in file_contexts])}"
+            )
+
+            prioritized_comments, remaining_comments = await self._review_files(
+                observations=observations,
+                contexts=file_contexts,
+            )
+
+            feedback = await self._assistant.get_feedback(
+                prioritized_comments=prioritized_comments,
+                remaining_comments=remaining_comments,
+            )
+            logger.log.info(f"Overall Feedback: {feedback.evaluation}")
+
+            if self._debug:
+                logger.log.debug("Running in debug, no review submitted")
+                return
+
             code.pull_request.submit_review(
                 pull_request=self._pr,
-                body=overview.initial_assessment.summary,
+                body=f"{feedback.overall_comment}\n\n"
+                f"{feedback.justification}\n"
+                f"Final Evaluation: {feedback.evaluation}",
+                comments=prioritized_comments,
             )
-            return
-
-        observations = overview.observations
-        file_contexts = overview.file_contexts
-        logger.log.debug(
-            f"Files to review: \n"
-            f"- {"\n- ".join([context.path for context in file_contexts])}"
-        )
-
-        prioritized_comments, remaining_comments = await self._review_files(
-            observations=observations,
-            contexts=file_contexts,
-        )
-
-        feedback = await self._assistant.get_feedback(
-            prioritized_comments=prioritized_comments,
-            remaining_comments=remaining_comments,
-        )
-        logger.log.info(f"Overall Feedback: {feedback.evaluation}")
-
-        if self._debug:
-            logger.log.debug("Running in debug, no review submitted")
-            return
-
-        code.pull_request.submit_review(
-            pull_request=self._pr,
-            body=f"{feedback.overall_comment}\n\n"
-            f"{feedback.justification}\n"
-            f"Final Evaluation: {feedback.evaluation}",
-            comments=prioritized_comments,
-        )
+        except GithubException as e:
+            logger.log.error(f"GitHub API error: {str(e)}")
+            raise
+        except Exception as e:
+            logger.log.error(f"Unexpected error in run method: {str(e)}")
+            raise
