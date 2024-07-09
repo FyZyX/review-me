@@ -108,16 +108,15 @@ class App:
                 logger.log.debug("Running in debug, no review submitted")
                 return
 
-            code.pull_request.submit_review(
+            if not code.pull_request.submit_review(
                 pull_request=self._pr,
                 body=f"{feedback.overall_comment}\n\n"
                 f"{feedback.justification}\n"
                 f"Final Evaluation: {feedback.evaluation}",
                 comments=prioritized_comments,
-            )
+            ):
+                code.pull_request.post_comment(self._pr, "Couldn't post review")
         except GithubException as e:
             logger.log.error(f"GitHub API error: {str(e)}")
-            raise
         except Exception as e:
             logger.log.error(f"Unexpected error in run method: {str(e)}")
-            raise
