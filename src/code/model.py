@@ -5,6 +5,10 @@ from pydantic import BaseModel
 from ai.schema import Side
 
 
+class InvalidSeverityError(ValueError):
+    pass
+
+
 class Severity(enum.IntEnum):
     CRITICAL = 0
     MAJOR = 1
@@ -14,7 +18,10 @@ class Severity(enum.IntEnum):
 
     @classmethod
     def from_string(cls, s):
-        return cls[s.upper()]
+        try:
+            return cls[s.upper()]
+        except KeyError:
+            raise InvalidSeverityError(f"Invalid severity: {s}")
 
 
 class Category(enum.StrEnum):
