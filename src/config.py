@@ -42,7 +42,7 @@ def from_env() -> AppConfig:
         with open(event_path, "r") as f:
             event = json.load(f)
 
-        pr_number = event["issue"]["number"]
+        pr_number = event["pull_request"]["number"]
 
         config = AppConfig(
             github=GitHubConfig(
